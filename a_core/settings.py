@@ -139,3 +139,5 @@ MAILERS = {
 MEDIA_URL = '/media/'  # URL putanja za pristup medijskim fajlovima
 MEDIA_ROOT = BASE_DIR / 'media'  # Folder gde će se čuvati otpremljeni fajlovi
 
+# redirect nakon logina
+LOGIN_REDIRECT_URL = 'home'  # nakon logina, korisnik će biti
