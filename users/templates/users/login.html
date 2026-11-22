@@ -37,6 +37,13 @@
                                     <!-- forma za login -->
                                         {{ form.non_field_errors }}
 
+                                        {% if form.email_not_verified %}
+                                            <a href="{% url 'verification_email_sent' %}">
+                                                Request a new verification link
+                                            </a>
+                                        {% endif %}
+
+
                                         <input type="text" placeholder="Username or Email" name="username" id="id_username" class="form-control mt-4" value="{{ form.username.value|default_if_none:'' }}" autocomplete="username" required>
                                         {{ form.username.errors }}
 

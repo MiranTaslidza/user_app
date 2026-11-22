@@ -1,0 +1,62 @@
+﻿{% extends 'base.html' %}
+
+{% block title %}Check your inbox{% endblock title %}
+
+{% block styles %}
+<style>
+    .verification-section { min-height: 75vh; }
+    .verification-card { max-width: 560px; width: 100%; border-radius: 1.5rem; }
+    .verification-icon { width: 80px; height: 80px; background-color: #eaf2ff; }
+    .verification-tip { background-color: #f5f7fa; border-radius: 0.75rem; }
+</style>
+{% endblock styles %}
+
+{% block content %}
+<section class="verification-section d-flex align-items-center justify-content-center py-5"
+    aria-labelledby="verification-title">
+    <div class="verification-card card border-0 shadow-sm">
+        <div class="card-body p-4 p-sm-5 text-center">
+            <div class="verification-icon d-flex align-items-center justify-content-center rounded-circle mx-auto mb-4 text-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                    stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                    <path d="m3 7 9 6 9-6"></path>
+                </svg>
+            </div>
+
+            <p class="small text-primary fw-bold text-uppercase mb-2">Email verification</p>
+            <h1 id="verification-title" class="h2 fw-bold mb-3">Check your inbox</h1>
+            <p class="text-muted mb-4">
+                You're almost there! Follow the link in your verification email to
+                activate your account and sign in.
+            </p>
+
+            {% if user.email %}
+                <p class="small text-muted mb-1">Verification email sent to</p>
+                <p class="fw-bold text-break mb-4">{{ user.email }}</p>
+            {% endif %}
+
+            <div class="verification-tip p-3 mb-4 text-start">
+                <p class="small fw-bold mb-1">Can't find the email?</p>
+                <p class="small text-muted mb-0">
+                    Check your spam or junk folder. It may take a few minutes to arrive.
+                    If it still hasn't arrived, you can request a new link below.
+                </p>
+            </div>
+
+            <form method="post" action="{% url 'resend_verification_email' %}" class="d-grid mb-3">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary py-2">
+                    Resend verification email
+                </button>
+            </form>
+
+            <a href="{% url 'login' %}" class="d-inline-block py-2">Back to sign in</a>
+            <p class="small text-muted mt-3 mb-0">
+                You'll be able to sign in once your email address is verified.
+            </p>
+        </div>
+    </div>
+</section>
+{% endblock content %}
