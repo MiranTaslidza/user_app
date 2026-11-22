@@ -48,11 +48,14 @@
             <!-- Right links -->
             <ul class="navbar-nav ms-auto d-flex flex-row mt-3 mt-lg-0">
                 {% if user.is_authenticated %}
+                <!-- prikaz prijavljenog korisnika -->
+                <div class="ms-3 me-3 mt-2 text-white">Welcome {{user.username}}</div>
+
                 <!-- logout -->
                 <li class="nav-item text-center mx-2 mx-lg-1">
                     <form method="post" action="{% url 'logout' %}">
                         {% csrf_token %}
-                        <button class="form-control" type="submit">logout</button>
+                        <button class="nav-link bg-transparent border-0" type="submit">Logout</button>
                     </form>
 
                 </li>
