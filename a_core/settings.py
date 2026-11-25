@@ -131,7 +131,7 @@ MAILERS = {
     },
 }
 
-
+LOGIN_URL = 'login'
 # media fajlovi
 MEDIA_URL = '/media/'  # URL putanja za pristup medijskim fajlovima
 MEDIA_ROOT = BASE_DIR / 'media'  # Folder gde će se čuvati otpremljeni fajlovi
@@ -143,3 +143,9 @@ LOGIN_REDIRECT_URL = 'home'  # nakon logina, korisnik će biti
 AUTHENTICATION_BACKENDS = [
     'users.backend.UsernameOrEmailBackend',
 ]
+
+
+# Google OAuth postavke
+GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = config('GOOGLE_CLIENT_SECRET')
+GOOGLE_REDIRECT_URI = config('GOOGLE_REDIRECT_URI')

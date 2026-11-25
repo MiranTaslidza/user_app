@@ -1,0 +1,77 @@
+﻿{% extends 'base.html' %}
+
+{% block title %}Your profile{% endblock title %}
+
+{% block styles %}
+<style>
+    .profile-page { max-width: 960px; margin: 0 auto; }
+    .profile-card { border-radius: 1.5rem; overflow: hidden; }
+    .profile-intro { background: #edf3fc; }
+    .profile-avatar { width: 96px; height: 96px; object-fit: cover; font-size: 2rem; background: #fff; color: #315a96; }
+    .profile-form .form-control { border-radius: .65rem; padding: .75rem 1rem; }
+    .profile-form .form-control:focus { border-color: #86b7fe; box-shadow: 0 0 0 .2rem rgba(13, 110, 253, .12); }
+    .profile-form .errorlist { list-style: none; padding: 0; margin: .5rem 0 0; color: #b02a37; font-size: .875rem; }
+    .profile-form .btn { border-radius: .65rem; }
+</style>
+{% endblock styles %}
+
+{% block content %}
+<section class="profile-page py-4 py-md-5" aria-labelledby="profile-title">
+    <div class="card profile-card border-0 shadow-sm">
+        <div class="row g-0">
+            <div class="col-md-4 profile-intro p-4 p-lg-5">
+                {% if form.instance.image %}
+                    <img src="{{ form.instance.image.url }}" alt="Your profile photo" class="profile-avatar rounded-circle mb-4">
+                {% else %}
+                    <div class="profile-avatar rounded-circle d-flex align-items-center justify-content-center mb-4" aria-hidden="true">
+                        {{ user.username|first|upper }}
+                    </div>
+                {% endif %}
+                <p class="small fw-bold text-primary text-uppercase mb-2">Your account</p>
+                <h1 id="profile-title" class="h3 fw-bold mb-3">Make it yours.</h1>
+                <p class="text-muted mb-4">Add a photo and a few details to personalise your profile.</p>
+                <div class="border-top pt-4">
+                    <p class="small text-muted mb-1">Signed in as</p>
+                    <p class="fw-bold text-break mb-0">{{ user.username }}</p>
+                </div>
+            </div>
+
+            <div class="col-md-8 p-4 p-lg-5">
+                <h2 class="h4 fw-bold mb-2">Profile details</h2>
+                <p class="text-muted small mb-4">All fields are optional. You can update them at any time.</p>
+
+                <form method="post" enctype="multipart/form-data" class="profile-form">
+                    {% csrf_token %}
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
+                    {% endif %}
+                    {% for hidden in form.hidden_fields %}
+                        {{ hidden }}
+                        {{ hidden.errors }}
+                    {% endfor %}
+
+                    {% for field in form.visible_fields %}
+                        <div class="mb-4">
+                            <label for="{{ field.id_for_label }}" class="form-label fw-bold small">{{ field.label }}</label>
+                            {{ field }}
+                            {{ field.errors }}
+                            {% if field.name == 'image' %}
+                                <p class="form-text mb-0">Choose an image up to 5 MB.</p>
+                            {% elif field.name == 'birth_date' %}
+                                <p class="form-text mb-0">You must be at least 15 years old.</p>
+                            {% elif field.help_text %}
+                                <p class="form-text mb-0">{{ field.help_text }}</p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+
+                    <div class="border-top pt-4 d-flex flex-wrap align-items-center justify-content-between gap-3">
+                        <a href="{% url 'home' %}" class="text-muted">Back to home</a>
+                        <button type="submit" class="btn btn-primary px-4 py-2">Save profile</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

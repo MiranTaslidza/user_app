@@ -25,15 +25,36 @@
                         Link
                     </a>
                 </li>
+                
+            </ul>
+            <!-- Left links -->
+
+            <!-- Right links -->
+            <ul class="navbar-nav ms-auto d-flex flex-row mt-3 mt-lg-0">
+                {% if user.is_authenticated %}
+                <!-- prikaz prijavljenog korisnika -->
+                <div class="ms-3 me-3 text-white">
+                    {% if user.profile %}
+                    <a href="{% url 'profile_detail' user.profile.pk %}" class="nav-link">{{ user.username }}</a>
+                    {% else %}
+                    <a href="{% url 'profile' %}" class="nav-link">{{ user.username }}</a>
+                    {% endif %}
+                </div>
+
+
                 <li class="nav-item dropdown text-center mx-2 mx-lg-1">
                     <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button"
                         data-bs-toggle="dropdown" aria-expanded="false">
-                        Setting
+                        ⚙️
                     </a>
                     <!-- Dropdown menu -->
                     <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="navbarDropdown">
-                        <li><a class="dropdown-item" href="#">Action</a></li>
-                        <li><a class="dropdown-item" href="#">Another action</a></li>
+                        {% if user.profile %}
+                        <li><a class="dropdown-item" href="{% url 'profile_update' user.profile.pk %}">Update Profile</a></li>
+                        {% else %}
+                        <li><a class="dropdown-item" href="{% url 'profile' %}">Create Profile</a></li>
+                        {% endif %}
+                        <li><a class="dropdown-item" href="{% url 'password_change' %}">Change password</a></li>
                         <li>
                             <hr class="dropdown-divider" />
                         </li>
@@ -42,14 +63,7 @@
                         </li>
                     </ul>
                 </li>
-            </ul>
-            <!-- Left links -->
 
-            <!-- Right links -->
-            <ul class="navbar-nav ms-auto d-flex flex-row mt-3 mt-lg-0">
-                {% if user.is_authenticated %}
-                <!-- prikaz prijavljenog korisnika -->
-                <div class="ms-3 me-3 mt-2 text-white">Welcome {{user.username}}</div>
 
                 <!-- logout -->
                 <li class="nav-item text-center mx-2 mx-lg-1">
@@ -73,6 +87,8 @@
                     </a>
                 </li>
                 {% endif %}
+
+                
             </ul>
 
             <!-- Right links -->
