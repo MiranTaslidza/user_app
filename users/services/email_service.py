@@ -281,3 +281,99 @@ def send_account_reactivation_email(user, token):
     )
     
 
+# Šalje link za ponovno aktiviranje deaktiviranog računa.
+def send_account_reactivation_email(user, token):
+    # Link povezuje korisnika s njegovim potpisanim tokenom.
+    reactivation_path = reverse(
+        'account_reactivation_confirm',
+        kwargs={
+            'user_id': user.pk,
+            'token': token,
+        },
+    )
+
+    reactivation_url = settings.APP_BASE_URL.rstrip('/') + reactivation_path
+
+    # Rok u poruci preuzimamo iz istog pravila koje provjerava token.
+    expires_in_minutes = REACTIVATION_TOKEN_MAX_AGE // 60
+
+    message = (
+        f'Hello {user.username},\n\n'
+        'We received a request to reactivate your account.\n\n'
+        'To reactivate your account, click the link below:\n\n'
+        f'{reactivation_url}\n\n'
+        f'This link expires {expires_in_minutes} minutes '
+        'after it was created.\n\n'
+        'After reactivation, you can sign in using your usual sign-in method.\n\n'
+        'If you did not request this, ignore this email. '
+        'Your account will remain deactivated.\n\n'
+        'Do not share this link with anyone.\n\n'
+        'Security Team'
+    )
+
+    return send_mail(
+        subject='Reactivate your account',
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+    
+
+# Šalje potvrdni kod za trajno brisanje računa.
+def send_account_deletion_code_email(user, code, expires_at):
+    # Prikazujemo stvarni rok važenja spremljenog koda.
+    expires_at_text = timezone.localtime(expires_at).strftime(
+        '%d.%m.%Y. %H:%M:%S %Z'
+    )
+
+    message = (
+        f'Hello {user.username},\n\n'
+        'We received a request to permanently delete your account.\n\n'
+        'Your confirmation code is:\n\n'
+        f'{code}\n\n'
+        f'This code expires on: {expires_at_text}.\n\n'
+        'Return to the account deletion page, enter this code, '
+        'and select Permanently delete account to complete the deletion.\n\n'
+        'Requesting this code has not deleted your account.\n\n'
+        'If you did not request account deletion, ignore this email '
+        'and do not share this code with anyone.\n\n'
+        'Security Team'
+    )
+
+    return send_mail(
+        subject='Confirm your account deletion',
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+
+
+
+# Šalje obavijest nakon uspješnog brisanja računa.
+# Podatke primamo kao obične vrijednosti jer User više ne postoji.
+def send_account_deleted_email(email, username, deleted_at):
+    deleted_at_text = timezone.localtime(deleted_at).strftime(
+        '%d.%m.%Y. %H:%M:%S %Z'
+    )
+
+    message = (
+        f'Hello {username},\n\n'
+        'Your account has been permanently deleted.\n\n'
+        f'Deletion time: {deleted_at_text}\n\n'
+        'Your existing sign-in sessions have been terminated.\n\n'
+        'If you did not authorize this action, please contact support.\n\n'
+        'Security Team'
+    )
+
+    return send_mail(
+        subject='Your account has been deleted',
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email],
+        fail_silently=False,
+    )    
+    
+
+

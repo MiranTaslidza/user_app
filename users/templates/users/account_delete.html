@@ -1,0 +1,98 @@
+﻿{% extends 'base.html' %}
+
+{% load static %}
+
+{% block title %}Delete account{% endblock title %}
+
+{% block scripts %}
+<script src="{% static 'users/js/account_delete.js' %}" defer></script>
+{% endblock scripts %}
+
+{% block styles %}
+<style>
+    .account-delete-page { min-height: 75vh; }
+    .account-delete-card { width: 100%; max-width: 540px; border-radius: 1.5rem; }
+    .account-delete-icon { width: 72px; height: 72px; background: #fcebed; color: #b02a37; }
+    .account-delete-note { background: #f5f7fa; border-radius: .75rem; }
+    .account-delete-warning { background: #fff3f3; border: 1px solid #f5c2c7; border-radius: .75rem; }
+    .account-delete-card .btn { border-radius: .65rem; }
+    .deletion-code-input { width: 100%; min-width: 0; height: 3.25rem; text-align: center; font-size: 1.4rem; font-weight: 600; border-radius: .65rem; }
+    #delete-account-button[hidden] { display: none !important; }
+</style>
+{% endblock styles %}
+
+{% block content %}
+<section class="account-delete-page d-flex align-items-center justify-content-center py-5" aria-labelledby="account-delete-title">
+    <div class="account-delete-card card border-0 shadow-sm">
+        <div class="card-body p-4 p-sm-5">
+            <div class="account-delete-icon rounded-circle d-flex align-items-center justify-content-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"></path>
+                </svg>
+            </div>
+            <div class="text-center mb-4">
+                <p class="small fw-bold text-danger text-uppercase mb-2">Account settings</p>
+                <h1 id="account-delete-title" class="h3 fw-bold mb-3">Delete your account</h1>
+                <p class="text-muted mb-0">Before you continue, please review how account deletion works.</p>
+            </div>
+
+            <div class="account-delete-warning p-3 mb-4">
+                <h2 class="small fw-bold text-danger mb-2">This action is permanent</h2>
+                <p class="small mb-0">Once your account is deleted, it cannot be restored. Requesting a confirmation code does not delete your account.</p>
+            </div>
+
+            <div class="account-delete-note p-3 p-sm-4 mb-4">
+                <h2 class="h6 fw-bold mb-2">Confirm by email</h2>
+                <p class="small text-muted mb-2">We'll send a confirmation code to your current email address:</p>
+                <p class="small fw-bold text-break mb-3">{{ request.user.email }}</p>
+                <p class="small text-muted mb-0">Your account will only be deleted after you enter the correct code and select <strong>Permanently delete account</strong>.</p>
+            </div>
+
+            {% if code_form.non_field_errors %}
+                <div class="alert alert-danger" role="alert">{{ code_form.non_field_errors }}</div>
+            {% endif %}
+
+            {% if show_code_entry %}
+                <form method="post" action="{% url 'account_delete' %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="delete_account">
+                <fieldset class="mb-4">
+                    <legend class="h6 fw-bold">Enter your confirmation code</legend>
+                    <p id="deletion-code-help" class="small text-muted">Enter the six-digit code from your email. The code expires after 10 minutes.</p>
+                    <div class="d-flex gap-2" role="group" aria-label="Six-digit confirmation code" aria-describedby="deletion-code-help">
+                        {% for field in code_form %}
+                            <input type="text" name="{{ field.html_name }}" id="{{ field.id_for_label }}" class="form-control deletion-code-input"
+                                value="{{ field.value|default_if_none:'' }}" required
+                                inputmode="numeric" pattern="[0-9]" aria-label="Digit {{ forloop.counter }} of 6"
+                                autocomplete="{% if forloop.first %}one-time-code{% else %}off{% endif %}">
+                        {% endfor %}
+                    </div>
+                    {% for field in code_form %}
+                        {% for error in field.errors %}
+                            <p class="small text-danger mt-2 mb-0" role="alert">Digit {{ forloop.parentloop.counter }}: {{ error }}</p>
+                        {% endfor %}
+                    {% endfor %}
+                </fieldset>
+                <button type="submit" id="delete-account-button" class="btn btn-danger w-100 py-2 mb-3" hidden>Permanently delete account</button>
+                </form>
+            {% endif %}
+
+            <form method="post" action="{% url 'account_delete' %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="request_code">
+                <button type="submit" class="btn {% if show_code_entry %}btn-outline-danger{% else %}btn-danger{% endif %} w-100 py-2">
+                    {% if show_code_entry %}Resend confirmation code{% else %}Send confirmation code{% endif %}
+                </button>
+                <a href="{% url 'home' %}" class="btn btn-outline-secondary w-100 py-2 mt-2">Cancel</a>
+            </form>
+
+            <div class="border-top mt-4 pt-4 text-center">
+                <h2 class="small fw-bold mb-2">Just taking a break?</h2>
+                <p class="small text-muted mb-2">You can deactivate your account and keep your data instead.</p>
+                <a href="{% url 'account_deactivation' %}" class="small d-inline-block py-2">Deactivate account instead</a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

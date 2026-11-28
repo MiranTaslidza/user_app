@@ -44,7 +44,6 @@ urlpatterns = [
     path("account/deactivate/", views.AccountDeactivationView.as_view(), name="account_deactivation"), #slanje tokena na mail
     path("account/reactivate/", views.AccountReactivationRequestView.as_view(), name="account_reactivation_request"),
     path("account/reactivate/<int:user_id>/<str:token>/", views.AccountReactivationConfirmView.as_view(), name="account_reactivation_confirm"),
-
-
-
+    path("account/delete/", views.AccountDeleteView.as_view(), name="account_delete"),
+    
 ]   

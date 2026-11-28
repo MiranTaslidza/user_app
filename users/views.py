@@ -32,8 +32,8 @@ from django.utils import timezone
 from django.contrib.sessions.models import Session 
 from django.utils.crypto import constant_time_compare
 from .services.account_reactivation_token_service import prepare_account_reactivation_token, check_account_reactivation_token
-
-
+from django.views.generic import TemplateView
+from .forms.account_deletion_code_form import AccountDeletionCodeForm
 
 
 # services
@@ -43,7 +43,7 @@ from .services.email_change_rate_limit_service import check_email_change_rate_li
 from .services.account_deactivation_service import deactivate_account
 from .services.account_deactivation_token_service import check_account_deactivation_token, prepare_account_deactivation_token
 from .services.account_reactivation_token_service import prepare_account_reactivation_token, check_account_reactivation_token
-
+from .services.account_deletion_service import request_account_deletion_code, get_account_deletion_state, MAX_FAILED_ATTEMPTS, delete_account_with_code 
 
 #forms
 from .forms.user_creation_form import RegisterForm
@@ -57,6 +57,7 @@ from .forms.account_deactivation_form import AccountDeactivationForm
 #models
 from django.contrib.auth.models import User
 from .models.email_change_model import EmailChange
+from .models.account_deletion_request_model import AccountDeletionRequest
 
 # Create your views here.
 
@@ -329,7 +330,7 @@ class GoogleCallbackView(View):
     def get(self, request):
         # Već prijavljen korisnik ne treba novu prijavu.
         if request.user.is_authenticated:
-            return redirect('users-home')
+            return redirect('home')
 
         # Uzimamo i uklanjamo podatke započete Google prijave.
         expected_state = request.session.pop('google_oauth_state', None)
@@ -505,11 +506,17 @@ class GoogleCallbackView(View):
         login(
             request,
             user,
-            backend='users.backends.UsernameOrEmailBackend',
+            backend='users.backend.UsernameOrEmailBackend',
         )
 
+        if not user.has_usable_password():
+            return redirect('set_initial_password')
+
+        if not Profile.objects.filter(user=user).exists():
+            return redirect('profile')
+
         messages.success(request, 'You are successfully signed in with Google.')
-        return redirect('users-home')
+        return redirect('home')
 
 
 
@@ -1386,6 +1393,89 @@ class AccountReactivationConfirmView(View):
             'Your account has been reactivated. You can now sign in.',
         )
         return redirect('login')
+
+# brisdanje akaunta
+# Početna stranica za trajno brisanje računa.
+class AccountDeleteView(LoginRequiredMixin, TemplateView):
+    template_name = 'users/account_delete.html'
+    
+    # određuje treba li prikazati unos koda.
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        deletion_request = AccountDeletionRequest.objects.filter(
+            user=self.request.user,
+        ).first()
+
+        context['show_code_entry'] = bool(
+            deletion_request
+            and deletion_request.code_hash
+            and deletion_request.expires_at
+            and deletion_request.expires_at > timezone.now()
+            and deletion_request.failed_attempts < MAX_FAILED_ATTEMPTS
+            and constant_time_compare(
+                deletion_request.account_state,
+                get_account_deletion_state(self.request.user),
+            )
+        )
+        
+        # pripremamo formu za šest cifara.
+        # Ako vraćamo greške, zadržavamo već obrađenu formu.
+        if 'code_form' not in context:
+            context['code_form'] = AccountDeletionCodeForm()    
+
+        return context
+    
+    def post(self, request, *args, **kwargs):
+        # svaka HTML forma navodi svoju radnju.
+        action = request.POST.get('action')
+
+        # Postojeći postupak slanja koda.
+        if action == 'request_code':
+            success, message = request_account_deletion_code(request.user)
+
+            if success:
+                messages.success(request, message)
+            else:
+                messages.error(request, message)
+
+            return redirect('account_delete')
+
+        # obrada unesenog koda i brisanje.
+        if action == 'delete_account':
+            code_form = AccountDeletionCodeForm(request.POST)
+
+            # Prvo provjeravamo jesu li unesene sve cifre.
+            if not code_form.is_valid():
+                return self.render_to_response(
+                    self.get_context_data(code_form=code_form)
+                )
+
+            # Servis provjerava hash, rok i broj pokušaja.
+            # Račun briše samo nakon uspješne provjere.
+            success, message = delete_account_with_code(
+                request.user,
+                code_form.cleaned_data['code'],
+            )
+
+            if not success:
+                code_form.add_error(None, message)
+
+                return self.render_to_response(
+                    self.get_context_data(code_form=code_form)
+                )
+
+            # Servis je obrisao sesije; čistimo i trenutni browser.
+            logout(request)
+
+            messages.success(request, message)
+            return redirect('home')
+
+        messages.error(request, 'The requested action is invalid.')
+        return redirect('account_delete')
+
+
+
 
 
 
