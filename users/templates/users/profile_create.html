@@ -1,6 +1,11 @@
 ﻿{% extends 'base.html' %}
 
+{% load static %}
 {% block title %}Your profile{% endblock title %}
+
+{% block scripts %}
+<script src="{% static 'users/js/profile_addresses.js' %}" defer></script>
+{% endblock scripts %}
 
 {% block styles %}
 <style>
@@ -64,6 +69,25 @@
                             {% endif %}
                         </div>
                     {% endfor %}
+
+                    <section class="border-top pt-4 mb-4" aria-labelledby="addresses-title" data-address-formset>
+                        <h2 id="addresses-title" class="h5 fw-bold">Your addresses</h2>
+                        <p class="small text-muted">Add home, work or other addresses. Addresses are optional; complete the required fields for each address you add.</p>
+                        {{ form.address_formset.management_form }}
+                        {% if form.address_formset.non_form_errors %}
+                            <div class="alert alert-danger" role="alert">{{ form.address_formset.non_form_errors }}</div>
+                        {% endif %}
+                        <div data-address-list>
+                            {% for address_form in form.address_formset %}
+                                {% include 'users/includes/address_form.html' %}
+                            {% endfor %}
+                        </div>
+                        <template data-address-template>
+                            {% include 'users/includes/address_form.html' with address_form=form.address_formset.empty_form %}
+                        </template>
+                        <button type="button" class="btn btn-outline-primary btn-sm" data-add-address hidden>Add another address</button>
+                        <span class="small text-muted ms-2" data-address-status aria-live="polite"></span>
+                    </section>
 
                     <div class="border-top pt-4 d-flex flex-wrap align-items-center justify-content-between gap-3">
                         <a href="{% url 'home' %}" class="text-muted">Back to home</a>
