@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 
 def profile_image_path(instance, filename):
     user_id = instance.user_id
-    return f'picture/{user_id}/{filename}'
+    return f'picture/profile_picture/{user_id}/{filename}'
 
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
@@ -11,6 +11,11 @@ class Profile(models.Model):
     phone = models.CharField(max_length=30, blank=True)
     bio = models.TextField(blank=True)
     birth_date = models.DateField(null=True, blank=True)
+    
+    # Vrijeme deaktivacije računa; prazno znači da nije deaktiviran.
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+    # Hash tokena za potvrdu deaktivacije; originalni token šaljemo emailom.
+    deactivation_token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)
 
     def __str__(self):
         return self.user.username

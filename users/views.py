@@ -30,12 +30,19 @@ from datetime import timedelta
 import hashlib
 from django.utils import timezone
 from django.contrib.sessions.models import Session 
+from django.utils.crypto import constant_time_compare
+from .services.account_reactivation_token_service import prepare_account_reactivation_token, check_account_reactivation_token
+
+
 
 
 # services
-from .services.email_service import send_verification_email, send_password_changed_email, send_old_email_change_confirmation, send_new_email_change_confirmation, send_email_change_completed_notification
+from .services.email_service import send_verification_email, send_password_changed_email, send_old_email_change_confirmation, send_new_email_change_confirmation, send_email_change_completed_notification, send_account_deactivation_completed_notification, send_account_deactivation_confirmation, send_account_reactivation_email
 from .services.google_oauth_service import get_google_authorization_url, exchange_code_for_token, verify_google_id_token
 from .services.email_change_rate_limit_service import check_email_change_rate_limit
+from .services.account_deactivation_service import deactivate_account
+from .services.account_deactivation_token_service import check_account_deactivation_token, prepare_account_deactivation_token
+from .services.account_reactivation_token_service import prepare_account_reactivation_token, check_account_reactivation_token
 
 
 #forms
@@ -44,6 +51,8 @@ from .forms.profile_form import ProfileForm
 from .forms.profile_update import ProfileUpdateForm
 from .forms.email_change_form import EmailChangeForm
 from django.contrib.auth.forms import SetPasswordForm
+from .forms.login_form import LoginForm
+from .forms.account_deactivation_form import AccountDeactivationForm
 
 #models
 from django.contrib.auth.models import User
@@ -133,16 +142,42 @@ class CustomPasswordChangeView(PasswordChangeView):
 ######## verifikacija maila #############
 
 # funkcija za verifikaciju emaila
+# provjeru i aktivaciju izvršavamo u istoj transakciji.
+@transaction.atomic
+# provjeru i aktivaciju izvršavamo u istoj transakciji.
+@transaction.atomic
 def verify_email(request, uidb64, token):
     try:
         # Dekodira ID korisnika iz URL-a
         uid = urlsafe_base64_decode(uidb64).decode()
 
         # Pronalazi korisnika u bazi
-        user = User.objects.get(pk=uid)
+        #user = User.objects.get(pk=uid)
+        
+        # zaključava korisnika tokom provjere i aktivacije.
+        user = User.objects.select_for_update().get(pk=uid)
 
     except (TypeError, ValueError, OverflowError, User.DoesNotExist):
         user = None
+        
+        
+    # registracijska verifikacija ne aktivira
+    # račun koji je korisnik deaktivirao.
+    if user is not None:
+        account_deactivated = Profile.objects.filter(
+            user_id=user.pk,
+            deactivated_at__isnull=False,
+        ).exists()
+
+        if account_deactivated:
+            messages.warning(
+                request,
+                "This account has been deactivated. "
+                "Email verification cannot reactivate it.",
+            )
+            return redirect('login')
+        
+        
     
     # Provjerava da li je korisnik već aktivan   
     if user is not None and user.is_active:
@@ -176,7 +211,7 @@ def verify_email(request, uidb64, token):
         return redirect('verification_email_sent')
 
     return HttpResponse("The verification link is invalid or the account has already been activated.")
-
+    
 
 
 
@@ -242,6 +277,9 @@ class ProfileCreateView(LoginRequiredMixin, UpdateView):
 
 # preusmjerenje na profile nakon registracije
 class CustomLoginView(LoginView):
+    # Django prijava koristi naš LoginForm.
+    authentication_form = LoginForm
+
     def get_success_url(self):
         # Nakon uspješne prijave provjerava postoji li profil.
         if not Profile.objects.filter(user=self.request.user).exists():
@@ -288,17 +326,10 @@ class GoogleLoginView(View):
         return redirect(google_url)
 
 class GoogleCallbackView(View):
-    def login_error(self, request, log_message, user_message):
-        logger.warning(log_message)
-        messages.error(request, user_message)
-        return redirect('login')
-
     def get(self, request):
         # Već prijavljen korisnik ne treba novu prijavu.
         if request.user.is_authenticated:
-            if not request.user.has_usable_password():
-                return redirect('set_initial_password')
-            return redirect('home')
+            return redirect('users-home')
 
         # Uzimamo i uklanjamo podatke započete Google prijave.
         expected_state = request.session.pop('google_oauth_state', None)
@@ -315,19 +346,19 @@ class GoogleCallbackView(View):
         ):
             messages.error(
                 request,
-                'Google prijava nije važeća. Pokušajte ponovo.',
+                'Google login is not valid. Please try again.',
             )
             return redirect('login')
 
         # Korisnik je odustao ili je Google vratio grešku.
         if request.GET.get('error'):
-            messages.error(request, 'Google prijava nije završena.')
+            messages.error(request, 'Google sign in not complete.')
             return redirect('login')
 
         code = request.GET.get('code')
 
         if not code:
-            messages.error(request, 'Google nije vratio kod za prijavu.')
+            messages.error(request, 'Google did not return the login code.')
             return redirect('login')
 
         try:
@@ -349,11 +380,13 @@ class GoogleCallbackView(View):
             )
 
         except (requests.RequestException, GoogleAuthError, ValueError):
-            return self.login_error(
+            logger.warning('Google token verification failed.')
+
+            messages.error(
                 request,
-                'Google token verification failed.',
-                'Google prijava nije uspjela. Pokušajte ponovo.',
+                'Google login failed. Please try again.',
             )
+            return redirect('login')
 
         google_id = google_user.get('sub')
         email = google_user.get('email')
@@ -367,7 +400,7 @@ class GoogleCallbackView(View):
         ):
             messages.error(
                 request,
-                'Google nije potvrdio potrebne podatke korisnika.',
+                'Google has not verified the required user data.',
             )
             return redirect('login')
 
@@ -376,11 +409,11 @@ class GoogleCallbackView(View):
         try:
             validate_email(email)
         except ValidationError:
-            messages.error(request, 'Email adresa nije ispravna.')
+            messages.error(request, 'The email address is not valid.')
             return redirect('login')
 
         if len(email) > 254:
-            messages.error(request, 'Email adresa je preduga.')
+            messages.error(request, 'The email address is too long.')
             return redirect('login')
 
         # Ovaj postupak prepoznaje korisnika prema emailu.
@@ -393,8 +426,8 @@ class GoogleCallbackView(View):
         if not google_controls_email:
             messages.error(
                 request,
-                'Za ovu adresu koristite prijavu emailom i lozinkom. '
-                'Google prijava podržava Gmail i Google Workspace adrese.',
+                'For this address, use login with email and password. '
+                'Google sign in supports Gmail and Google Workspace addresses.',
             )
             return redirect('login')
 
@@ -430,11 +463,32 @@ class GoogleCallbackView(View):
                 user = User.objects.filter(email__iexact=email).first()
 
                 if user is None:
-                    return self.login_error(
+                    logger.warning('Google user creation failed.')
+
+                    messages.error(
                         request,
-                        'Google user creation failed.',
-                        'Kreiranje računa nije uspjelo. Pokušajte ponovo.',
+                        'Account creation failed. Please try again.',
                     )
+                    return redirect('login')
+
+        # prvo provjeravamo deaktivaciju.
+        # Provjera vrijedi bez obzira na vrijednost is_active.
+        account_deactivated = Profile.objects.filter(
+            user_id=user.pk,
+            deactivated_at__isnull=False,
+        ).exists()
+
+        if account_deactivated:
+            # Uklanjamo eventualnu prethodnu oznaku za verifikaciju.
+            if request.session.get('verification_user_id') == user.pk:
+                request.session.pop('verification_user_id', None)
+
+            messages.warning(
+                request,
+                'This account has been deactivated.',
+            )
+            return redirect('login')
+        # KRAJ DODANOG BLOKA.
 
         # Postojeći neaktivan račun ostaje neaktivan.
         if not user.is_active:
@@ -442,8 +496,8 @@ class GoogleCallbackView(View):
 
             messages.warning(
                 request,
-                'Račun nije aktivan. Potvrdite email '
-                'putem verifikacijskog linka.',
+                'The account is not active. Confirm email '
+                'via verification link.',
             )
             return redirect('verification_email_sent')
 
@@ -451,17 +505,12 @@ class GoogleCallbackView(View):
         login(
             request,
             user,
-            backend='users.backend.UsernameOrEmailBackend',
+            backend='users.backends.UsernameOrEmailBackend',
         )
 
-        if not user.has_usable_password():
-            return redirect('set_initial_password')
+        messages.success(request, 'You are successfully signed in with Google.')
+        return redirect('users-home')
 
-        if not Profile.objects.filter(user=user).exists():
-            return redirect('profile')
-
-        messages.success(request, 'Uspješno ste prijavljeni preko Googlea.')
-        return redirect('home')
 
 
 # prijavljen korisnik postavlja prvu lokalnu lozinku poslije krieranja profila.
@@ -1011,6 +1060,332 @@ class EmailChangeResendView(LoginRequiredMixin, View):
             messages.success(request, "A new confirmation link has been sent to your current email address.")
 
         return redirect("email_change")    
+
+
+################# brisanje i deaktivacija akaunta########################
+# deaktivacija akaunta
+class AccountDeactivationConfirmView(View):
+
+    # Ne čuvamo odgovor s tokenom u cacheu.
+    def dispatch(self, request, *args, **kwargs):
+        response = super().dispatch(request, *args, **kwargs)
+        response['Cache-Control'] = 'no-store'
+        response['Referrer-Policy'] = 'same-origin'
+        return response
+
+    # klik na email link izvršava deaktivaciju.
+    # Više ne prikazujemo HTML potvrdu niti koristimo post() metodu.
+    def get(self, request, token):
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+        # Saznajemo kojem korisniku token pripada.
+        user_id = get_object_or_404(
+            Profile.objects.only('user_id'),
+            deactivation_token_hash=token_hash,
+        ).user_id
+
+        # Pamtimo pripada li trenutna prijava tom korisniku.
+        is_current_account = (
+            request.user.is_authenticated
+            and request.user.pk == user_id
+        )
+
+        with transaction.atomic():
+            # Prvo zaključavamo korisnika.
+            user = get_object_or_404(
+                get_user_model().objects.select_for_update(),
+                pk=user_id,
+            )
+
+            # Zatim zaključavamo profil i ponovo tražimo isti token.
+            profile = get_object_or_404(
+                Profile.objects.select_for_update(),
+                user_id=user.pk,
+                deactivation_token_hash=token_hash,
+            )
+
+            profile.user = user
+
+            # Zadržavamo provjere potpisa, isteka i stanja računa.
+            if not check_account_deactivation_token(profile, token):
+                messages.error(
+                    request,
+                    'This deactivation link is invalid or has expired.',
+                )
+                return redirect('login')
+
+            # Postojeći servis deaktivira račun,
+            # uklanja token i prekida prijave.
+            deactivate_account(user)
+
+            # čitamo stvarno spremljeno vrijeme deaktivacije.
+            profile.refresh_from_db(fields=['deactivated_at'])
+            deactivated_at = profile.deactivated_at
+
+            # email šaljemo tek nakon uspješnog
+            # završetka transakcije u bazi.
+            def send_completion_notification():
+                try:
+                    send_account_deactivation_completed_notification(
+                        user,
+                        deactivated_at,
+                    )
+                except (SMTPException, OSError):
+                    # Neuspjelo slanje ne poništava deaktivaciju.
+                    logger.exception(
+                        'Sending the account deactivation notification failed.'
+                    )
+
+            transaction.on_commit(send_completion_notification)
+
+        # Čistimo trenutnu sesiju ako pripada deaktiviranom računu.
+        if is_current_account:
+            logout(request)
+
+        # Nema dodatne stranice ni poruke o uspjehu na frontendu.
+        # Korisnik dobija završnu obavijest emailom.
+        return redirect('login')
+    
+# slanje tokena na mail
+class AccountDeactivationView(LoginRequiredMixin, FormView):
+    form_class = AccountDeactivationForm
+    template_name = 'users/account_deactivation.html'
+    success_url = reverse_lazy('home')
+
+    def form_valid(self, form):
+        try:
+            with transaction.atomic():
+                # Prvo zaključavamo trenutno prijavljenog korisnika.
+                user = get_user_model().objects.select_for_update().get(
+                    pk=self.request.user.pk,
+                )
+
+                # Zatim zaključavamo njegov profil.
+                profile = Profile.objects.select_for_update().filter(
+                    user_id=user.pk,
+                ).first()
+
+                if profile is None:
+                    form.add_error(
+                        None,
+                        'Please create your profile before requesting account deactivation.',
+                    )
+                    return self.form_invalid(form)
+
+                if not user.is_active or profile.deactivated_at is not None:
+                    form.add_error(
+                        None,
+                        'This account is not eligible for deactivation.',
+                    )
+                    return self.form_invalid(form)
+
+                # Token servis koristi upravo zaključanog korisnika.
+                profile.user = user
+
+                # Pripremamo originalni token za email i njegov hash za bazu.
+                token = prepare_account_deactivation_token(profile)
+
+                # Spremamo samo hash, ne originalni token.
+                profile.save(update_fields=['deactivation_token_hash'])
+
+                # Šaljemo potvrdu na trenutni email korisnika.
+                sent = send_account_deactivation_confirmation(user, token)
+
+                # Ako slanje nije potvrđeno, poništavamo transakciju.
+                if sent != 1:
+                    raise OSError('The mail backend did not confirm sending.')
+
+        except (SMTPException, OSError):
+            logger.exception('Sending the account deactivation confirmation failed.')
+
+            form.add_error(
+                None,
+                'The confirmation email could not be sent. Please try again.',
+            )
+            return self.form_invalid(form)
+
+        messages.success(
+            self.request,
+            'A confirmation link has been sent to your email address. '
+            'Your account remains active until you confirm deactivation.',
+        )
+
+        return super().form_valid(form)
+
+
+# Slanje aktivacijskog emaila nakon potvrđene lozinke.
+class AccountReactivationRequestView(View):
+
+    def post(self, request):
+        # Čitamo dozvolu spremljenu prilikom pokušaja prijave.
+        reactivation_request = request.session.get(
+            'account_reactivation_request'
+        )
+
+        if not isinstance(reactivation_request, dict):
+            messages.error(
+                request,
+                'Please enter your sign-in details before requesting reactivation.',
+            )
+            return redirect('login')
+
+        verified_at = reactivation_request.get('verified_at')
+
+        # Potvrda lozinke vrijedi 10 minuta za pokretanje zahtjeva.
+        if not isinstance(verified_at, (int, float)):
+            request.session.pop('account_reactivation_request', None)
+            messages.error(request, 'Please try signing in again.')
+            return redirect('login')
+
+        elapsed = timezone.now().timestamp() - verified_at
+
+        if elapsed < 0 or elapsed > 10 * 60:
+            request.session.pop('account_reactivation_request', None)
+            messages.error(
+                request,
+                'Your reactivation request has expired. Please try signing in again.',
+            )
+            return redirect('login')
+
+        with transaction.atomic():
+            # Prvo zaključavamo korisnika.
+            user = get_object_or_404(
+                get_user_model().objects.select_for_update(),
+                pk=reactivation_request.get('user_id'),
+            )
+
+            # Zatim njegov profil.
+            profile = get_object_or_404(
+                Profile.objects.select_for_update(),
+                user_id=user.pk,
+            )
+
+            # Račun mora i dalje biti deaktiviran.
+            # Email i lozinka moraju odgovarati prethodno potvrđenim podacima.
+            if (
+                user.is_active
+                or profile.deactivated_at is None
+                or user.email != reactivation_request.get('email')
+                or not constant_time_compare(
+                    reactivation_request.get('auth_hash', ''),
+                    user.get_session_auth_hash(),
+                )
+            ):
+                request.session.pop('account_reactivation_request', None)
+                messages.error(
+                    request,
+                    'This request is no longer valid. Please try signing in again.',
+                )
+                return redirect('login')
+
+            profile.user = user
+            token = prepare_account_reactivation_token(profile)
+
+        # Email šaljemo nakon pripreme tokena.
+        try:
+            sent = send_account_reactivation_email(user, token)
+
+            if sent != 1:
+                raise OSError('The mail backend did not confirm sending.')
+
+        except (SMTPException, OSError):
+            logger.exception('Sending the account reactivation email failed.')
+
+            messages.error(
+                request,
+                'The reactivation email could not be sent. Please try again.',
+            )
+            return redirect('login')
+
+        # Jedna potvrda lozinke služi za jedan uspješno poslani zahtjev.
+        request.session.pop('account_reactivation_request', None)
+
+        messages.success(
+            request,
+            'A reactivation link has been sent to your email address.',
+        )
+        return redirect('login')
+
+
+
+# Aktivacija računa klikom na link iz emaila.
+class AccountReactivationConfirmView(View):
+
+    def dispatch(self, request, *args, **kwargs):
+        response = super().dispatch(request, *args, **kwargs)
+        response['Cache-Control'] = 'no-store'
+        response['Referrer-Policy'] = 'same-origin'
+        return response
+
+    def get(self, request, user_id, token):
+        # Pamtimo pripada li trenutna prijava tom računu.
+        is_current_account = (
+            request.user.is_authenticated
+            and request.user.pk == user_id
+        )
+
+        with transaction.atomic():
+            # Prvo zaključavamo korisnika, zatim profil.
+            user = get_object_or_404(
+                get_user_model().objects.select_for_update(),
+                pk=user_id,
+            )
+
+            profile = get_object_or_404(
+                Profile.objects.select_for_update(),
+                user_id=user.pk,
+            )
+
+            profile.user = user
+
+            # Provjeravamo potpis, rok i stanje računa pod zaključavanjem.
+            if not check_account_reactivation_token(profile, token):
+                messages.error(
+                    request,
+                    'This reactivation link is invalid or has expired.',
+                )
+                return redirect('login')
+
+            # Uklanjamo eventualno preostale stare sesije.
+            # Ponovna aktivacija ne smije vratiti stare prijave.
+            now = timezone.now()
+            session_keys = []
+
+            for session in Session.objects.filter(expire_date__gt=now).iterator():
+                session_data = session.get_decoded()
+
+                if session_data.get('_auth_user_id') == str(user.pk):
+                    session_keys.append(session.session_key)
+
+                if len(session_keys) >= 500:
+                    Session.objects.filter(session_key__in=session_keys).delete()
+                    session_keys.clear()
+
+            if session_keys:
+                Session.objects.filter(session_key__in=session_keys).delete()
+
+            # Uklanjanjem datuma deaktivacije token prestaje vrijediti.
+            profile.deactivated_at = None
+            profile.deactivation_token_hash = None
+
+            profile.save(update_fields=[
+                'deactivated_at',
+                'deactivation_token_hash',
+            ])
+
+            user.is_active = True
+            user.save(update_fields=['is_active'])
+
+        if is_current_account:
+            logout(request)
+
+        request.session.pop('account_reactivation_request', None)
+
+        messages.success(
+            request,
+            'Your account has been reactivated. You can now sign in.',
+        )
+        return redirect('login')
 
 
 

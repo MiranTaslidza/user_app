@@ -35,7 +35,19 @@
                                     {%csrf_token%}
 
                                     <!-- forma za login -->
-                                        {{ form.non_field_errors }}
+                                        {% if form.account_deactivated %}
+                                            <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+                                                <span>
+                                                    This account has been deactivated.
+                                                    To reactivate it, click:
+                                                </span>
+                                                <button type="submit" form="account-reactivation-form" class="btn btn-outline-primary btn-sm">
+                                                    Reactivate
+                                                </button>
+                                            </div>
+                                        {% else %}
+                                            {{ form.non_field_errors }}
+                                        {% endif %}
 
                                         {% if form.email_not_verified %}
                                             <a href="{% url 'verification_email_sent' %}">
@@ -72,6 +84,12 @@
                                     <a href="#!" class="small text-muted">Terms of use.</a>
                                     <a href="#!" class="small text-muted">Privacy policy</a>
                                 </form>
+
+                                {% if form.account_deactivated %}
+                                    <form id="account-reactivation-form" method="post" action="{% url 'account_reactivation_request' %}">
+                                        {% csrf_token %}
+                                    </form>
+                                {% endif %}
 
 
                             </div>

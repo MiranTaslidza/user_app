@@ -16,6 +16,9 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+# Base address used for links sent by email.
+APP_BASE_URL = config('APP_BASE_URL', default='http://127.0.0.1:8000')
+
 
 # Application definition
 

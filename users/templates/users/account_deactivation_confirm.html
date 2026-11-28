@@ -1,0 +1,55 @@
+﻿{% extends 'base.html' %}
+
+{% block title %}Confirm account deactivation{% endblock title %}
+
+{% block styles %}
+<style>
+    .deactivation-page { min-height: 75vh; }
+    .deactivation-card { width: 100%; max-width: 540px; border-radius: 1.5rem; }
+    .deactivation-icon { width: 72px; height: 72px; background: #fcebed; color: #b02a37; }
+    .deactivation-summary { background: #f5f7fa; border-radius: .75rem; }
+    .deactivation-summary ul { padding-left: 1.2rem; margin-bottom: 0; }
+    .deactivation-summary li + li { margin-top: .6rem; }
+    .deactivation-card .btn { border-radius: .65rem; }
+</style>
+{% endblock styles %}
+
+{% block content %}
+<section class="deactivation-page d-flex align-items-center justify-content-center py-5" aria-labelledby="deactivation-title">
+    <div class="deactivation-card card border-0 shadow-sm">
+        <div class="card-body p-4 p-sm-5">
+            <div class="deactivation-icon rounded-circle d-flex align-items-center justify-content-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M12 3v9M6.3 5.8a9 9 0 1 0 11.4 0"></path>
+                </svg>
+            </div>
+            <div class="text-center mb-4">
+                <p class="small fw-bold text-danger text-uppercase mb-2">Account settings</p>
+                <h1 id="deactivation-title" class="h3 fw-bold mb-3">Deactivate your account?</h1>
+                <p class="text-muted mb-0">Please review what happens before confirming your request.</p>
+            </div>
+
+            <div class="deactivation-summary p-3 p-sm-4 mb-4">
+                <h2 class="h6 fw-bold mb-3">What happens next</h2>
+                <ul class="small text-muted">
+                    <li>You will be signed out on all devices.</li>
+                    <li>You will no longer be able to sign in while your account is deactivated.</li>
+                    <li>Your account and profile data will be retained. This does not permanently delete your account.</li>
+                </ul>
+            </div>
+
+            <form method="post">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-danger w-100 py-2">Confirm deactivation</button>
+            </form>
+            <a href="{% url 'home' %}" class="btn btn-outline-secondary w-100 py-2 mt-2">Keep my account active</a>
+
+            <div class="border-top mt-4 pt-4">
+                <h2 class="small fw-bold mb-2">Didn't request this?</h2>
+                <p class="small text-muted mb-0">Do not confirm deactivation. Close this page to leave your account active.</p>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

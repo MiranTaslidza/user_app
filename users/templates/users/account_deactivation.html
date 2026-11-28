@@ -1,0 +1,70 @@
+﻿{% extends 'base.html' %}
+
+{% block title %}Deactivate account{% endblock title %}
+
+{% block styles %}
+<style>
+    .deactivation-request-page { min-height: 75vh; }
+    .deactivation-request-card { width: 100%; max-width: 540px; border-radius: 1.5rem; }
+    .deactivation-request-icon { width: 72px; height: 72px; background: #fcebed; color: #b02a37; }
+    .deactivation-request-note { background: #f5f7fa; border-radius: .75rem; }
+    .deactivation-request-note ul { padding-left: 1.2rem; margin-bottom: 0; }
+    .deactivation-request-note li + li { margin-top: .5rem; }
+    .deactivation-request-card .btn { border-radius: .65rem; }
+    .deactivation-request-form .errorlist { list-style: none; padding: 0; margin: 0; }
+    .deactivation-request-form input[type="checkbox"] { width: 1rem; height: 1rem; margin-top: .25rem; accent-color: #dc3545; flex-shrink: 0; }
+    .deactivation-request-form input[type="checkbox"]:focus-visible { outline: 2px solid #b02a37; outline-offset: 3px; }
+</style>
+{% endblock styles %}
+
+{% block content %}
+<section class="deactivation-request-page d-flex align-items-center justify-content-center py-5" aria-labelledby="deactivation-request-title">
+    <div class="deactivation-request-card card border-0 shadow-sm">
+        <div class="card-body p-4 p-sm-5">
+            <div class="deactivation-request-icon rounded-circle d-flex align-items-center justify-content-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M12 3v9M6.3 5.8a9 9 0 1 0 11.4 0"></path>
+                </svg>
+            </div>
+            <div class="text-center mb-4">
+                <p class="small fw-bold text-danger text-uppercase mb-2">Account settings</p>
+                <h1 id="deactivation-request-title" class="h3 fw-bold mb-3">Deactivate your account</h1>
+                <p class="text-muted mb-0">We'll email you a confirmation link. Your account will stay active until you confirm deactivation.</p>
+            </div>
+
+            <div class="deactivation-request-note p-3 p-sm-4 mb-4">
+                <h2 class="h6 fw-bold mb-3">Before you continue</h2>
+                <ul class="small text-muted">
+                    <li>Once confirmed, you will be signed out on all devices.</li>
+                    <li>You will no longer be able to sign in while your account is deactivated.</li>
+                    <li>Your account and profile data will be retained.</li>
+                </ul>
+                <div class="border-top mt-3 pt-3">
+                    <p class="small text-muted mb-1">Confirmation email will be sent to</p>
+                    <p class="small fw-bold text-break mb-0">{{ user.email }}</p>
+                </div>
+            </div>
+
+            <form method="post" class="deactivation-request-form">
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                    <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
+                {% endif %}
+                <div class="mb-4">
+                    <div class="d-flex align-items-start gap-2">
+                        {{ form.confirm }}
+                        <label for="{{ form.confirm.id_for_label }}" class="small">{{ form.confirm.label }}</label>
+                    </div>
+                    {% if form.confirm.errors %}
+                        <div id="{{ form.confirm.auto_id }}_error" class="text-danger small mt-2" role="alert">{{ form.confirm.errors }}</div>
+                    {% endif %}
+                </div>
+                <button type="submit" class="btn btn-danger w-100 py-2">Send confirmation email</button>
+                <a href="{% url 'home' %}" class="btn btn-outline-secondary w-100 py-2 mt-2">Cancel</a>
+            </form>
+            <p class="small text-muted text-center mt-3 mb-0">Sending this email does not deactivate your account.</p>
+        </div>
+    </div>
+</section>
+{% endblock content %}

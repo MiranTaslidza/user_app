@@ -38,5 +38,13 @@ urlpatterns = [
     path("google/login/", views.GoogleLoginView.as_view(), name="google_login"), # google login
     path('google/callback/', views.GoogleCallbackView.as_view(), name='google_callback'),
     path('set-password/', views.SetInitialPasswordView.as_view(), name='set_initial_password'),
+    
+    # deaktivacija i brisanje akaunta
+    path("account/deactivate/confirm/<str:token>/", views.AccountDeactivationConfirmView.as_view(), name="account_deactivation_confirm"), #deaktivacija
+    path("account/deactivate/", views.AccountDeactivationView.as_view(), name="account_deactivation"), #slanje tokena na mail
+    path("account/reactivate/", views.AccountReactivationRequestView.as_view(), name="account_reactivation_request"),
+    path("account/reactivate/<int:user_id>/<str:token>/", views.AccountReactivationConfirmView.as_view(), name="account_reactivation_confirm"),
+
+
 
 ]   

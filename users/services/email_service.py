@@ -3,9 +3,12 @@ from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
+from django.utils import timezone
 from django.urls import reverse
 from django.contrib import messages
 from django.template.loader import render_to_string
+from .account_reactivation_token_service import TOKEN_MAX_AGE as REACTIVATION_TOKEN_MAX_AGE
+
 
 
 # funkcija za slanje emaila
@@ -177,3 +180,104 @@ def send_email_change_completed_notification(email_change):
         recipient_list=[email_change.previous_email],
         fail_silently=False,
     )
+
+
+
+# Šalje link za potvrdu deaktivacije na trenutni email korisnika.
+def send_account_deactivation_confirmation(user, token):
+    # Link pravimo pomoću osnovne adrese aplikacije iz postavki.
+    confirmation_path = reverse(
+        'account_deactivation_confirm',
+        kwargs={'token': token},
+    )
+
+    confirmation_url = settings.APP_BASE_URL.rstrip('/') + confirmation_path
+
+    subject = 'Confirm your account deactivation'
+
+    message = (
+        f'Hello {user.username},\n\n'
+        'We received a request to deactivate your account.\n\n'
+        'To continue, open the link below and confirm your decision:\n\n'
+        f'{confirmation_url}\n\n'
+        'This link expires 15 minutes after the request was created.\n\n'
+        'Deactivating your account will prevent sign-in and '
+        'sign you out on all devices. Your account data will be retained.\n\n'
+        'If you did not request this, do not confirm the deactivation. '
+        'Your account will remain active.\n\n'
+        'Do not share this link with anyone.\n\n'
+        'Security Team'
+    )
+
+    return send_mail(
+        subject=subject,
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    ) 
+
+
+# Obavještava korisnika da je deaktivacija završena.
+def send_account_deactivation_completed_notification(user, deactivated_at):
+    deactivated_at_text = timezone.localtime(deactivated_at).strftime(
+        '%d.%m.%Y. %H:%M:%S %Z'
+    )
+
+    message = (
+        f'Hello {user.username},\n\n'
+        'Your account has been deactivated.\n\n'
+        f'Deactivation time: {deactivated_at_text}\n\n'
+        'You have been signed out on all devices, '
+        'and sign-in is currently disabled.\n\n'
+        'Your account data has been retained.\n\n'
+        'If you did not authorize this action, please contact support.\n\n'
+        'Security Team'
+    )
+
+    return send_mail(
+        subject='Your account has been deactivated',
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+
+def send_account_reactivation_email(user, token):
+    # Link povezuje korisnika s njegovim potpisanim tokenom.
+    reactivation_path = reverse(
+        'account_reactivation_confirm',
+        kwargs={
+            'user_id': user.pk,
+            'token': token,
+        },
+    )
+
+    reactivation_url = settings.APP_BASE_URL.rstrip('/') + reactivation_path
+
+    # Rok u poruci preuzimamo iz istog pravila koje provjerava token.
+    expires_in_minutes = REACTIVATION_TOKEN_MAX_AGE // 60
+
+    message = (
+        f'Hello {user.username},\n\n'
+        'We received a request to reactivate your account.\n\n'
+        'To reactivate your account, click the link below:\n\n'
+        f'{reactivation_url}\n\n'
+        f'This link expires {expires_in_minutes} minutes '
+        'after it was created.\n\n'
+        'After reactivation, you can sign in using your usual sign-in method.\n\n'
+        'If you did not request this, ignore this email. '
+        'Your account will remain deactivated.\n\n'
+        'Do not share this link with anyone.\n\n'
+        'Security Team'
+    )
+
+    return send_mail(
+        subject='Reactivate your account',
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+    
+
