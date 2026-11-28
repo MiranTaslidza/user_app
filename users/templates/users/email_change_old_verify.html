@@ -1,0 +1,63 @@
+﻿{% extends 'base.html' %}
+
+{% block title %}Confirm email change{% endblock title %}
+
+{% block styles %}
+<style>
+    .email-verify-page { min-height: 75vh; }
+    .email-verify-card { width: 100%; max-width: 540px; border-radius: 1.5rem; }
+    .email-verify-icon { width: 72px; height: 72px; background: #eaf2ff; color: #0d6efd; }
+    .email-verify-note { background: #f5f7fa; border-radius: .75rem; }
+    .email-verify-card .btn { border-radius: .65rem; }
+    .email-verify-step { width: 28px; height: 28px; flex-shrink: 0; background: #eaf2ff; color: #0d6efd; }
+</style>
+{% endblock styles %}
+
+{% block content %}
+<section class="email-verify-page d-flex align-items-center justify-content-center py-5" aria-labelledby="email-verify-title">
+    <div class="email-verify-card card border-0 shadow-sm">
+        <div class="card-body p-4 p-sm-5">
+            <div class="email-verify-icon rounded-circle d-flex align-items-center justify-content-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                    <path d="m3 7 9 6 9-6"></path>
+                </svg>
+            </div>
+            <div class="text-center mb-4">
+                <p class="small fw-bold text-primary text-uppercase mb-2">Email change · Step 1 of 2</p>
+                <h1 id="email-verify-title" class="h3 fw-bold mb-3">Confirm your email change</h1>
+                <p class="text-muted mb-0">Confirm that you requested to change the email address associated with your account.</p>
+            </div>
+
+            <div class="email-verify-note p-3 p-sm-4 mb-4">
+                <h2 class="h6 fw-bold mb-3">What happens next?</h2>
+                <ol class="list-unstyled small mb-0">
+                    <li class="d-flex align-items-start gap-3 mb-3">
+                        <span class="email-verify-step rounded-circle d-inline-flex align-items-center justify-content-center fw-bold" aria-hidden="true">1</span>
+                        <span class="text-muted">Confirm your request using the button below.</span>
+                    </li>
+                    <li class="d-flex align-items-start gap-3">
+                        <span class="email-verify-step rounded-circle d-inline-flex align-items-center justify-content-center fw-bold" aria-hidden="true">2</span>
+                        <span class="text-muted">We'll send a verification link to your new email address. Follow that link to complete the change.</span>
+                    </li>
+                </ol>
+            </div>
+
+            <form method="post">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary w-100 py-2">Confirm email change</button>
+            </form>
+            <p class="small text-muted text-center mt-3 mb-0">Your email address will only be updated after the new address is verified.</p>
+
+            <div class="border-top mt-4 pt-4">
+                <h2 class="h6 fw-bold mb-2">Didn't request this change?</h2>
+                <p class="small text-muted mb-0">Do not confirm this request. You can close this page and keep using your current email address.</p>
+            </div>
+            <div class="text-center mt-3">
+                <a href="{% url 'home' %}" class="d-inline-block py-2">Back to home</a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

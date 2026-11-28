@@ -1,10 +1,12 @@
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMultiAlternatives
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from django.urls import reverse
 from django.contrib import messages
+from django.template.loader import render_to_string
+
 
 # funkcija za slanje emaila
 def send_verification_email(request, user): 
@@ -83,5 +85,95 @@ def send_password_changed_email(request, user):
         fail_silently=False,
     )
 
+# slanje poruke na stari email
+def send_old_email_change_confirmation(request, email_change, token):
+    """Šalje link za potvrdu promjene na stari email."""
+
+    verification_url = request.build_absolute_uri(
+        reverse("email_change_old_verify", kwargs={"token": token})
+    )
+
+    context = {
+        "user": email_change.user,
+        "email_change": email_change,
+        "verification_url": verification_url,
+    }
+
+    html_message = render_to_string("users/email_change_old_confirmation.html", context)
+
+    text_message = (
+        f"Hello {email_change.user.username},\n\n"
+        "A request was made to change your email address.\n\n"
+        "If you requested this change, confirm it using this link:\n\n"
+        f"{verification_url}\n\n"
+        "If you did not request this change, ignore this message."
+    )
+
+    email = EmailMultiAlternatives(
+        subject="Confirm email change request",
+        body=text_message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[email_change.old_email],
+    )
+
+    email.attach_alternative(html_message, "text/html")
+    email.send(fail_silently=False)
 
 
+# slanje emaila na novi email
+def send_new_email_change_confirmation(request, email_change, token):
+    """Šalje potvrdu na novu email adresu nakon potvrde starog emaila."""
+
+    verification_url = request.build_absolute_uri(
+        reverse("email_change_new_verify", kwargs={"token": token})
+    )
+
+    context = {
+        "user": email_change.user,
+        "email_change": email_change,
+        "verification_url": verification_url,
+    }
+
+    html_message = render_to_string("users/email_change_new_confirmation.html", context)
+
+    text_message = (
+        f"Hello {email_change.user.username},\n\n"
+        "Confirm your new email address using this link:\n\n"
+        f"{verification_url}\n\n"
+        "If you did not request this change, ignore this email."
+    )
+
+    email = EmailMultiAlternatives(
+        subject="Confirm your new email address",
+        body=text_message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[email_change.new_email],
+    )
+
+    email.attach_alternative(html_message, "text/html")
+    email.send(fail_silently=False)
+
+
+
+# obavještava prethodnu adresu o završenoj promjeni.
+def send_email_change_completed_notification(email_change):
+    subject = "Your account email address has been changed"
+
+    message = (
+        f"Hello {email_change.user.username},\n\n"
+        "The email address associated with your account has been changed.\n\n"
+        f"Previous email address: {email_change.previous_email}\n\n"
+        "A new password was also set as part of this change.\n"
+        "Existing signed-in sessions have been invalidated.\n\n"
+        "If you made this change, no further action is required.\n\n"
+        "If you did not authorize this change, contact support immediately.\n\n"
+        "Security Team"
+    )
+
+    send_mail(
+        subject=subject,
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email_change.previous_email],
+        fail_silently=False,
+    )

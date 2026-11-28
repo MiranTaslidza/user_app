@@ -1,5 +1,5 @@
 #models
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404, redirect
 from django.views.generic import UpdateView, DetailView, FormView
 from django.views.generic.edit import CreateView 
 from django.urls import reverse_lazy, reverse
@@ -18,8 +18,7 @@ from google.auth.exceptions import GoogleAuthError
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.core.exceptions import ValidationError
-from django.contrib.auth import login, logout, update_session_auth_hash
-from django.contrib.auth.forms import SetPasswordForm
+from django.contrib.auth import login, logout, update_session_auth_hash, get_user_model
 from uuid import uuid4
 from users.models.profile_model import Profile
 logger = logging.getLogger(__name__)
@@ -27,20 +26,28 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, PasswordResetView, PasswordResetConfirmView, PasswordChangeView, PasswordChangeDoneView
 from django.contrib.messages.views import SuccessMessageMixin
 from smtplib import SMTPException
-
+from datetime import timedelta
+import hashlib
+from django.utils import timezone
+from django.contrib.sessions.models import Session 
 
 
 # services
-from .services.email_service import send_verification_email, send_password_changed_email
+from .services.email_service import send_verification_email, send_password_changed_email, send_old_email_change_confirmation, send_new_email_change_confirmation, send_email_change_completed_notification
 from .services.google_oauth_service import get_google_authorization_url, exchange_code_for_token, verify_google_id_token
+from .services.email_change_rate_limit_service import check_email_change_rate_limit
+
 
 #forms
 from .forms.user_creation_form import RegisterForm
 from .forms.profile_form import ProfileForm
 from .forms.profile_update import ProfileUpdateForm
+from .forms.email_change_form import EmailChangeForm
+from django.contrib.auth.forms import SetPasswordForm
 
 #models
 from django.contrib.auth.models import User
+from .models.email_change_model import EmailChange
 
 # Create your views here.
 
@@ -523,4 +530,488 @@ class SetInitialPasswordView(LoginRequiredMixin, FormView):
             return redirect('profile')
 
         return redirect('home')
+
+########## change  email #############
+
+class EmailChangeView(LoginRequiredMixin, FormView):
+    form_class = EmailChangeForm
+    template_name = "users/email_change.html"
+    success_url = reverse_lazy("home")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['pending_email_change'] = EmailChange.objects.filter(
+            user=self.request.user,
+            is_active=True,
+            cancelled_at__isnull=True,
+            used_at__isnull=True,
+            new_email_verified=False,
+            expires_at__gt=timezone.now(),
+        ).first()
+        return context
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):
+        # provjerava 60 sekundi razmaka i 5 pokušaja na sat.
+        rate_limit_error = check_email_change_rate_limit(self.request.user)
+
+        # kod prekoračenja prikazuje grešku bez pravljenja tokena.
+        if rate_limit_error:
+            form.add_error(None, rate_limit_error)
+            return self.form_invalid(form)
+
+        now = timezone.now()
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+        with transaction.atomic():
+            # Zaključavamo korisnikov zapis dok pripremamo zahtjev.
+            user = get_user_model().objects.select_for_update().get(pk=self.request.user.pk)
+
+            email_change = EmailChange.objects.filter(user=user).first()
+
+            # Ne prepisujemo zahtjev koji još vrijedi.
+            if email_change and email_change.is_active and email_change.expires_at > now:
+                form.add_error(None, "An email change request is already pending.")
+                return self.form_invalid(form)
+
+            email_change, _ = EmailChange.objects.update_or_create(
+                user=user,
+                defaults={
+                    "old_email": user.email,
+                    "new_email": form.cleaned_data["new_email"],
+                    "old_email_token_hash": token_hash,
+                    "old_email_verified": False,
+                    "old_email_verified_at": None,
+                    "old_email_verified_ip": None,
+                    "new_email_token_hash": None,
+                    "new_email_verified": False,
+                    "new_email_verified_at": None,
+                    "new_email_verified_ip": None,
+                    "created_at": now,
+                    "expires_at": now + timedelta(hours=24),
+                    "used_at": None,
+                    "cancelled_at": None,
+                    "is_active": True,
+                },
+            )
+
+        send_old_email_change_confirmation(self.request, email_change, token)
+
+        messages.success(
+            self.request,
+            "Confirmation link has been sent to your current email address."
+        )
+
+        return super().form_valid(form)
+
+
+
+
+
+# uzima potvrdu sa starog emaila i šalje potvrdu na novi email
+class EmailChangeOldVerifyView(View):
+    template_name = "users/email_change_old_verify.html"
+
+    def get(self, request, token):
+        # Otvaranje linka samo prikazuje dugme za potvrdu.
+        return render(request, self.template_name)
+
+    def post(self, request, token):
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        new_token = secrets.token_urlsafe(32)
+        new_token_hash = hashlib.sha256(new_token.encode()).hexdigest()
+
+        with transaction.atomic():
+            email_change = get_object_or_404(
+                EmailChange.objects.select_for_update(),
+                old_email_token_hash=token_hash,
+            )
+
+            if not email_change.is_active:
+                messages.error(request, "This email change request is no longer active.")
+                return redirect("home")
+
+            if email_change.expires_at <= timezone.now():
+                email_change.is_active = False
+                email_change.save(update_fields=["is_active"])
+
+                messages.error(request, "This email change request has expired.")
+                return redirect("home")
+
+            if email_change.old_email_verified:
+                messages.info(request, "Your old email has already been confirmed.")
+                return redirect("home")
+
+            # Zahtjev mora još pripadati trenutnoj email adresi korisnika.
+            user = get_user_model().objects.select_for_update().get(pk=email_change.user_id)
+
+            if user.email.casefold() != email_change.old_email.casefold():
+                email_change.is_active = False
+                email_change.save(update_fields=["is_active"])
+
+                messages.error(request, "This request no longer matches your current email address.")
+                return redirect("home")
+
+            email_change.old_email_verified = True
+            email_change.old_email_verified_at = timezone.now()
+            email_change.new_email_token_hash = new_token_hash
+
+            email_change.save(update_fields=[
+                "old_email_verified",
+                "old_email_verified_at",
+                "new_email_token_hash",
+            ])
+
+        try:
+            send_new_email_change_confirmation(request, email_change, new_token)
+
+        except (SMTPException, OSError):
+            logger.exception("Sending the new email confirmation failed.")
+
+            # Omogućava novi pokušaj potvrde ako slanje nije uspjelo.
+            # Filter sprečava izmjenu eventualnog novijeg zahtjeva.
+            EmailChange.objects.filter(
+                pk=email_change.pk,
+                old_email_token_hash=token_hash,
+                new_email_token_hash=new_token_hash,
+                is_active=True,
+                new_email_verified=False,
+            ).update(
+                old_email_verified=False,
+                old_email_verified_at=None,
+                new_email_token_hash=None,
+            )
+
+            messages.error(request, "The confirmation email could not be sent. Please try again.")
+            return render(request, self.template_name)
+
+        messages.success(request, "Your old email has been confirmed. Check your new email address.")
+        return redirect("home")
+
+
+
+# Završna potvrda novog emaila, promjena adrese i odjava sesija
+# Završna potvrda novog emaila, promjena adrese i odjava sesija
+class EmailChangeNewVerifyView(View):
+
+    # def get(self, request, token):
+    #  postojeći postupak pokreće se slanjem forme.
+    def post(self, request, token):
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        User = get_user_model()
+
+        try:
+            with transaction.atomic():
+                email_change = get_object_or_404(
+                    EmailChange.objects.select_for_update(),
+                    new_email_token_hash=token_hash,
+                )
+
+                now = timezone.now()
+
+                if not email_change.is_active or email_change.cancelled_at or email_change.used_at or email_change.new_email_verified:
+                    messages.error(request, "This email change request is no longer active.")
+                    return redirect("home")
+
+                if email_change.expires_at <= now:
+                    email_change.is_active = False
+                    email_change.save(update_fields=["is_active"])
+
+                    messages.error(request, "This email change request has expired.")
+                    return redirect("home")
+
+                if not email_change.old_email_verified:
+                    messages.error(request, "Old email address has not been verified.")
+                    return redirect("home")
+
+                user = User.objects.select_for_update().get(pk=email_change.user_id)
+
+                if user.email.casefold() != email_change.old_email.casefold():
+                    email_change.is_active = False
+                    email_change.save(update_fields=["is_active"])
+
+                    messages.error(request, "This request no longer matches your current email address.")
+                    return redirect("home")
+
+                if User.objects.filter(email__iexact=email_change.new_email).exclude(pk=user.pk).exists():
+                    email_change.is_active = False
+                    email_change.save(update_fields=["is_active"])
+
+                    messages.error(request, "The new email address is already in use.")
+                    return redirect("home")
+
+                #  neaktivan račun ne može završiti promjenu.
+                if not user.is_active:
+                    messages.error(request, "This account is inactive.")
+                    return redirect("home")
+
+                #  priprema i provjera unesene nove lozinke.
+                # Privremeno koristimo novi email za provjere sličnosti lozinke.
+                current_email = user.email
+                user.email = email_change.new_email
+                form = SetPasswordForm(user=user, data=request.POST)
+                valid = form.is_valid()
+                user.email = current_email
+
+                #  nova lozinka ne smije biti ista kao stara.
+                new_password = form.cleaned_data.get("new_password1")
+
+                if new_password and user.check_password(new_password):
+                    form.add_error("new_password1", "Your new password must be different from your current password.")
+                    valid = False
+
+                #  kod greške ponovo prikazuje formu.
+                # Postojeći email i lozinka ostaju nepromijenjeni.
+                if not valid:
+                    return render(request, "users/email_change_new_verify.html", {"form": form})
+
+                # Čuvamo podatke o prethodnom emailu.
+                email_change.previous_email = user.email
+                email_change.email_changed_at = now
+
+                # Postavljamo novu adresu.
+                user.email = email_change.new_email
+
+                # user.save(update_fields=["email"])
+
+                #  forma postavlja hash nove lozinke.
+                user = form.save(commit=False)
+
+                #  zajedno sprema novi email i novu lozinku.
+                user.save(update_fields=["email", "password"])
+
+                # Zatvaramo uspješno završen zahtjev.
+                email_change.new_email_verified = True
+                email_change.new_email_verified_at = now
+                email_change.used_at = now
+                email_change.is_active = False
+
+                email_change.save(update_fields=[
+                    "previous_email",
+                    "email_changed_at",
+                    "new_email_verified",
+                    "new_email_verified_at",
+                    "used_at",
+                    "is_active",
+                ])
+
+                # Pronalazimo i brišemo postojeće sesije ovog korisnika.
+                session_keys = []
+
+                for session in Session.objects.filter(expire_date__gt=now).iterator():
+                    session_data = session.get_decoded()
+
+                    if session_data.get("_auth_user_id") == str(user.pk):
+                        session_keys.append(session.session_key)
+
+                    if len(session_keys) >= 500:
+                        Session.objects.filter(session_key__in=session_keys).delete()
+                        session_keys.clear()
+
+                if session_keys:
+                    Session.objects.filter(session_key__in=session_keys).delete()
+
+        except IntegrityError:
+            messages.error(request, "The email change could not be completed. Please try again.")
+            return redirect("home")
+
+        # Očistimo i trenutnu sesiju ako pripada istom korisniku.
+        if request.user.is_authenticated and request.user.pk == user.pk:
+            logout(request)
+
+        # nakon uspješne promjene šalje obavijest
+        # na prethodni email preko postojećeg servisa.
+        try:
+            send_email_change_completed_notification(email_change)
+
+        # greška slanja ne poništava završenu promjenu.
+        except (SMTPException, OSError):
+            logger.exception("Sending the email change completion notification failed.")
+
+            messages.warning(
+                request,
+                "Your email address and password were changed, but the notification to your previous email address could not be sent."
+            )
+
+        messages.success(
+            request,
+            # "Your email address has been successfully changed. Please log in again."
+
+            #  poruka potvrđuje promjenu oba podatka.
+            "Your email address and password have been successfully changed. Please log in again."
+        )
+
+        return redirect("login")
+
+    # otvaranje linka prikazuje formu.
+    # Ne sprema email, lozinku niti potvrdu zahtjeva.
+    def get(self, request, token):
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+        email_change = get_object_or_404(
+            EmailChange.objects.select_related("user"),
+            new_email_token_hash=token_hash,
+        )
+
+        if not email_change.is_active or email_change.cancelled_at or email_change.used_at or email_change.new_email_verified:
+            messages.error(request, "This email change request is no longer active.")
+            return redirect("home")
+
+        if email_change.expires_at <= timezone.now():
+            messages.error(request, "This email change request has expired.")
+            return redirect("home")
+
+        if not email_change.old_email_verified:
+            messages.error(request, "Old email address has not been verified.")
+            return redirect("home")
+
+        user = email_change.user
+
+        if not user.is_active:
+            messages.error(request, "This account is inactive.")
+            return redirect("home")
+
+        if user.email.casefold() != email_change.old_email.casefold():
+            messages.error(request, "This request no longer matches your current email address.")
+            return redirect("home")
+
+        # priprema praznu Django formu za novu lozinku.
+        user.email = email_change.new_email
+        form = SetPasswordForm(user=user)
+
+        return render(request, "users/email_change_new_verify.html", {"form": form})
+
+
+
+
+# otkazuje zahtjev prijavljenog korisnika.
+class EmailChangeCancelView(LoginRequiredMixin, View):
+
+    # otkazivanje se izvršava samo POST zahtjevom.
+    def post(self, request):
+
+        # pronalazi otvoren zahtjev ovog korisnika
+        # i jednim upitom ga označava kao otkazan i neaktivan.
+        cancelled = EmailChange.objects.filter(
+            user=request.user,
+            is_active=True,
+            used_at__isnull=True,
+            cancelled_at__isnull=True,
+        ).update(
+            is_active=False,
+            cancelled_at=timezone.now(),
+        )
+
+        # obavještava korisnika o rezultatu.
+        if cancelled:
+            messages.success(request, "Your email change request has been cancelled.")
+        else:
+            messages.info(request, "You have no pending email change request to cancel.")
+
+        return redirect("email_change")
+
+
+
+# ponovno slanje linka
+# ponovno šalje link za trenutni korak promjene emaila.
+class EmailChangeResendView(LoginRequiredMixin, View):
+
+    def post(self, request):
+        # koristi isti brojač kao pokretanje zahtjeva.
+        rate_limit_error = check_email_change_rate_limit(request.user)
+
+        # odbija prečest pokušaj bez mijenjanja postojećeg tokena.
+        if rate_limit_error:
+            messages.error(request, rate_limit_error)
+            return redirect("email_change")
+
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+        with transaction.atomic():
+            # uzimamo samo zahtjev prijavljenog korisnika.
+            # Zaključavamo zapis dok pripremamo novi token.
+            email_change = EmailChange.objects.select_for_update().filter(user=request.user).first()
+
+            if not email_change:
+                messages.info(request, "You have no email change request. Please start a new request.")
+                return redirect("email_change")
+
+            if not email_change.is_active or email_change.cancelled_at or email_change.used_at or email_change.new_email_verified:
+                messages.info(request, "This request is no longer active. Please start a new request.")
+                return redirect("email_change")
+
+            if email_change.expires_at <= timezone.now():
+                email_change.is_active = False
+                email_change.save(update_fields=["is_active"])
+
+                messages.error(request, "This request has expired. Please start a new request.")
+                return redirect("email_change")
+
+            # zahtjev mora još odgovarati trenutnom emailu.
+            user = get_user_model().objects.get(pk=email_change.user_id)
+
+            if not user.is_active or user.email.casefold() != email_change.old_email.casefold():
+                email_change.is_active = False
+                email_change.save(update_fields=["is_active"])
+
+                messages.error(request, "This request can no longer be continued.")
+                return redirect("email_change")
+
+            # biramo na koji email treba poslati link.
+            send_to_new_email = email_change.old_email_verified
+
+            if send_to_new_email:
+                token_field = "new_email_token_hash"
+            else:
+                token_field = "old_email_token_hash"
+
+            # pamtimo prethodni hash za slučaj greške slanja.
+            previous_token_hash = getattr(email_change, token_field)
+
+            # novi token zamjenjuje prethodni token ovog koraka.
+            setattr(email_change, token_field, token_hash)
+            email_change.save(update_fields=[token_field])
+
+        try:
+            # koristimo tvoje postojeće email servise.
+            if send_to_new_email:
+                send_new_email_change_confirmation(request, email_change, token)
+            else:
+                send_old_email_change_confirmation(request, email_change, token)
+
+        except (SMTPException, OSError):
+            logger.exception("Resending the email change confirmation failed.")
+
+            # vraćamo prethodni hash ako slanje ne uspije.
+            # Uslovi sprečavaju prepisivanje novijeg ili završenog zahtjeva.
+            filters = {
+                "pk": email_change.pk,
+                "is_active": True,
+                "old_email_verified": send_to_new_email,
+                "new_email_verified": False,
+                "used_at__isnull": True,
+                "cancelled_at__isnull": True,
+                token_field: token_hash,
+            }
+
+            EmailChange.objects.filter(**filters).update(**{token_field: previous_token_hash})
+
+            messages.error(request, "The confirmation email could not be sent. Please try again.")
+            return redirect("email_change")
+
+        if send_to_new_email:
+            messages.success(request, "A new confirmation link has been sent to your new email address.")
+        else:
+            messages.success(request, "A new confirmation link has been sent to your current email address.")
+
+        return redirect("email_change")    
+
+
+
 

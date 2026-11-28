@@ -1,1 +1,3 @@
 from .profile_model import Profile
+from .email_change_model import EmailChange
+from .email_change_rate_limit_model import EmailChangeRateLimit

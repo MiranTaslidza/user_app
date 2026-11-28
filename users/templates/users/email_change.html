@@ -1,0 +1,105 @@
+﻿{% extends 'base.html' %}
+
+{% block title %}Change email address{% endblock title %}
+
+{% block styles %}
+<style>
+    .email-change-page { min-height: 75vh; }
+    .email-change-card { width: 100%; max-width: 540px; border-radius: 1.5rem; }
+    .email-change-icon { width: 72px; height: 72px; background: #eaf2ff; color: #0d6efd; }
+    .email-change-note { background: #f5f7fa; border-radius: .75rem; }
+    .email-change-form .form-control { border-radius: .65rem; padding: .8rem 1rem; }
+    .email-change-form .form-control:focus { border-color: #86b7fe; box-shadow: 0 0 0 .2rem rgba(13, 110, 253, .15); }
+    .email-change-form [aria-invalid="true"] { border-color: #dc3545; }
+    .email-change-form .errorlist { list-style: none; padding: 0; margin: 0; }
+    .email-change-card .btn { border-radius: .65rem; }
+</style>
+{% endblock styles %}
+
+{% block content %}
+<section class="email-change-page d-flex align-items-center justify-content-center py-5" aria-labelledby="email-change-title">
+    <div class="email-change-card card border-0 shadow-sm">
+        <div class="card-body p-4 p-sm-5">
+            <div class="email-change-icon rounded-circle d-flex align-items-center justify-content-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                    <path d="m3 7 9 6 9-6"></path>
+                </svg>
+            </div>
+            <div class="text-center mb-4">
+                <p class="small fw-bold text-primary text-uppercase mb-2">Account settings</p>
+                <h1 id="email-change-title" class="h3 fw-bold mb-3">Change your email address</h1>
+                <p class="text-muted mb-0">
+                    {% if pending_email_change %}
+                        Your email change is in progress. Check your inbox to continue.
+                    {% else %}
+                        Enter your new email address and confirm your current password.
+                    {% endif %}
+                </p>
+            </div>
+
+            <div class="email-change-note p-3 mb-4">
+                <p class="small text-muted mb-1">Current email address</p>
+                <p class="fw-bold text-break mb-0">{{ user.email }}</p>
+                {% if pending_email_change %}
+                    <div class="border-top mt-3 pt-3">
+                        <p class="small text-muted mb-1">Requested new email</p>
+                        <p class="fw-bold text-break mb-0">{{ pending_email_change.new_email }}</p>
+                    </div>
+                {% endif %}
+            </div>
+
+            {% if pending_email_change %}
+                {% if form.non_field_errors %}
+                    <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
+                {% endif %}
+                <p class="small text-muted mb-3">
+                    {% if pending_email_change.old_email_verified %}
+                        Confirm the link sent to your new email address to finish the change.
+                    {% else %}
+                        Confirm the link sent to your current email address first.
+                    {% endif %}
+                    If it hasn't arrived, check your spam folder or request a new link.
+                </p>
+                <form method="post" action="{% url 'email_change_resend' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary w-100 py-2">Resend confirmation email</button>
+                </form>
+                <form method="post" action="{% url 'email_change_cancel' %}" class="text-center mt-2">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-link text-danger py-2">Cancel request</button>
+                </form>
+            {% else %}
+            <form method="post" class="email-change-form">
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                    <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
+                {% endif %}
+                {% for field in form.visible_fields %}
+                    <div class="mb-4">
+                        <label for="{{ field.id_for_label }}" class="form-label small fw-bold">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.errors %}
+                            <div id="{{ field.auto_id }}_error" class="text-danger small mt-2" role="alert">{{ field.errors }}</div>
+                        {% endif %}
+                        {% if field.help_text %}
+                            <div id="{{ field.auto_id }}_helptext" class="form-text">{{ field.help_text }}</div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+                <button type="submit" class="btn btn-primary w-100 py-2">Request email change</button>
+            </form>
+
+            <div class="email-change-note p-3 mt-4">
+                <p class="small fw-bold mb-1">Check your current inbox</p>
+                <p class="small text-muted mb-0">We'll send a confirmation link to your current email address. Follow the instructions in that email to continue the change.</p>
+            </div>
+            {% endif %}
+            <div class="text-center mt-4">
+                <a href="{% url 'home' %}" class="d-inline-block py-2">Back to home</a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

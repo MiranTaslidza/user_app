@@ -2,9 +2,6 @@ from django.urls import path
 from . import views
 from django.contrib.auth.views import LogoutView
 
-
-
-
 urlpatterns = [
     path('', views.home, name='home'),
     path("register/", views.RegisterView.as_view(), name="user-register"), # registracija
@@ -17,6 +14,15 @@ urlpatterns = [
     
     # promjena passworda
     path("change-password/", views.CustomPasswordChangeView.as_view(), name="password_change"),
+    
+    # promjena e-maila
+    path("email-change/", views.EmailChangeView.as_view(), name="email_change"),
+    path("email-change/old-verify/<str:token>/", views.EmailChangeOldVerifyView.as_view(), name="email_change_old_verify"), # verifikacija starog emaila
+    path("email-change/new-verify/<str:token>/", views.EmailChangeNewVerifyView.as_view(), name="email_change_new_verify"), # verifikacija novog emaila
+    path("email-change/cancel/", views.EmailChangeCancelView.as_view(), name="email_change_cancel"), # otkazivanje zahtjeva za promjenu e-maila
+    path("email-change/resend/", views.EmailChangeResendView.as_view(), name="email_change_resend"), # ponovno slanje verifikacijskog linka za promjenu emaila
+    
+
 
     # profile
     path('profile/', views.ProfileCreateView.as_view(), name='profile'), # kreiranje profila
